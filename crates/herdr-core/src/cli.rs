@@ -607,20 +607,20 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
                     "update the apps that use hc first, then hc update --force",
                 ));
             }
+            // An x64 hc on an Arm PC moves to the Arm build even at the same version.
+            let target = crate::releases::this_target(&m);
+            let other_cpu = target != format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
             if version.is_none()
                 && !force
+                && !other_cpu
                 && !older(&this, &format!("hc {}", m.version))
                 && !crate::platform::needs_bundle_update()
             {
                 let human = format!("{this} is up to date (latest release: {})", m.version);
                 up_to_date(&paths, &m.version, human)?
             } else {
-                let file = crate::releases::download(
-                    &m,
-                    &crate::releases::this_target(),
-                    &scratch.0,
-                    crate::platform::prefer_release_bundle(),
-                )?;
+                let file =
+                    crate::releases::download(&m, &target, &scratch.0, crate::platform::prefer_release_bundle())?;
                 let mut out = update(&paths, &file, force)?;
                 out.json["release"] = m.version.into();
                 out

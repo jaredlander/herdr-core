@@ -386,8 +386,11 @@ pub fn make_executable(_: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The files of a release, as they sit beside herdr-core.exe.
-const RELEASE: [&str; 3] = ["herdr-core.exe", r"conpty\conpty.dll", r"conpty\x64\OpenConsole.exe"];
+/// The files of a release, as they sit beside herdr-core.exe. conpty.dll is
+/// built for hc's CPU but starts the OpenConsole of Windows' own CPU, so
+/// every release carries both; an x64 hc on an Arm PC needs the arm64 one.
+const RELEASE: [&str; 4] =
+    ["herdr-core.exe", r"conpty\conpty.dll", r"conpty\x64\OpenConsole.exe", r"conpty\arm64\OpenConsole.exe"];
 
 /// Puts the release whose herdr-core.exe is `from` where `dest`'s folder
 /// is. Windows won't overwrite a running file but will rename one: every
@@ -405,7 +408,7 @@ pub fn swap_in(from: &Path, dest: &Path, works: impl Fn(&Path) -> bool) -> io::R
         )
         .open(dir.join(".update.lock"))
     })?;
-    for leftover in [dir.to_path_buf(), dir.join("conpty"), dir.join(r"conpty\x64")]
+    for leftover in [dir.to_path_buf(), dir.join("conpty"), dir.join(r"conpty\x64"), dir.join(r"conpty\arm64")]
         .iter()
         .filter_map(|d| std::fs::read_dir(d).ok())
         .flatten()
@@ -704,6 +707,31 @@ struct ConPty {
     create: CreatePc,
     resize: ResizePc,
     close: ClosePc,
+}
+
+/// Windows' own CPU, not this process's: `aarch64` for an x64 hc emulated on
+/// an Arm PC. IsWow64Process2 is looked up, not linked: it is newer than
+/// some Windows hc still starts on.
+pub fn native_arch() -> &'static str {
+    use windows_sys::Win32::System::LibraryLoader::*;
+    type Wow64Process2 = unsafe extern "system" fn(HANDLE, *mut u16, *mut u16) -> BOOL;
+    const AMD64: u16 = 0x8664;
+    const ARM64: u16 = 0xAA64;
+    // SAFETY: NUL-terminated names; kernel32 stays loaded; the signature is
+    // IsWow64Process2's.
+    let native = unsafe {
+        let kernel32 = GetModuleHandleW(wide("kernel32.dll".as_ref()).as_ptr());
+        GetProcAddress(kernel32, c"IsWow64Process2".as_ptr().cast()).and_then(|f| {
+            let f = std::mem::transmute::<unsafe extern "system" fn() -> isize, Wow64Process2>(f);
+            let (mut process, mut native) = (0u16, 0u16);
+            (f(GetCurrentProcess(), &mut process, &mut native) != 0).then_some(native)
+        })
+    };
+    match native {
+        Some(ARM64) => "aarch64",
+        Some(AMD64) => "x86_64",
+        _ => std::env::consts::ARCH,
+    }
 }
 
 /// The ConPTY shipped beside hc (`conpty\conpty.dll`): Windows' own drops
