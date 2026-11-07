@@ -134,6 +134,24 @@ jobs:
           "Windows on $native; herdr-core.exe for machine 0x{0:X4}" -f $machine
           $want = @{ AMD64 = 0x8664; ARM64 = 0xAA64 }[$native]
           if ($machine -ne $want) { throw "herdr-core.exe isn't built for this machine's own CPU" }
+      # TEMP diagnostic: how PowerShell starts on this runner, alone and in an hc terminal.
+      - name: PowerShell startup (diagnostic)
+        if: matrix.os == 'windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          1..3 | % { "powershell -NoProfile start {0}: {1:N1} s" -f $_, (Measure-Command { powershell -NoProfile -Command exit }).TotalSeconds }
+          $hc = "target/${{ matrix.target }}/debug/herdr-core.exe"
+          $env:HC_SESSION = "ci-diag"
+          foreach ($shell in "cmd /c echo ready & ping -n 60 127.0.0.1", "powershell -NoProfile -Command Write-Host ready; Start-Sleep 60") {
+            $parts = $shell -split " "
+            $t = (& $hc --json run --bg @parts | ConvertFrom-Json).address
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt 90 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
+            "{0} in hc terminal {1}: ready after {2:N1} s" -f $parts[0], $t, $sw.Elapsed.TotalSeconds
+            & $hc read $t | Select-Object -First 5
+          }
+          & $hc server stop
       # cli_docs runs the built binary's help: generated reference freshness
       # and README/docs command/flag checks, with file:line failures.
       - name: Tests (including human docs)
