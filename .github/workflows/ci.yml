@@ -136,18 +136,14 @@ jobs:
           "Windows on $native; herdr-core.exe for machine 0x{0:X4}" -f $machine
           $want = @{ AMD64 = 0x8664; ARM64 = 0xAA64 }[$native]
           if ($machine -ne $want) { throw "herdr-core.exe isn't built for this machine's own CPU" }
-      # A fresh runner's first PowerShell launches in a pseudo console stall
-      # 20-30 s on Arm until PowerShell has once started in an ordinary
-      # console (as on any used PC). Do that first, then check hc's.
-      - name: Warm up PowerShell
+      # TEMP experiment: cold, with the x64 OpenConsole in the arm64 slot.
+      - name: PowerShell in hc terminals (experiment)
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
-          foreach ($i in 1..3) {
-            $s = (Measure-Command { Start-Process powershell -ArgumentList "-NoProfile", "-Command", "exit" -WindowStyle Hidden -Wait }).TotalSeconds
-            "PowerShell #{0} in its own console: {1:N1} s" -f $i, $s
-          }
-          $hc = "target/${{ matrix.target }}/debug/herdr-core.exe"
+          $bin = "target/${{ matrix.target }}/debug"
+          if (Test-Path "$bin/conpty/arm64") { Copy-Item -Force "$bin/conpty/x64/OpenConsole.exe" "$bin/conpty/arm64/OpenConsole.exe"; "arm64 slot now holds the x64 OpenConsole" }
+          $hc = "$bin/herdr-core.exe"
           $env:HC_SESSION = "ci-warmup"
           foreach ($i in 1..3) {
             $t = (& $hc --json run --bg powershell -NoProfile -Command "Write-Host ready; Start-Sleep 5" | ConvertFrom-Json).address
