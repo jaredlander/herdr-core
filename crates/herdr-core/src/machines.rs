@@ -570,11 +570,16 @@ fn install_windows(paths: &crate::paths::Paths, target: &str, session: Option<&s
             "install hc there yourself",
         )
     })?;
-    // Its own CPU as Windows names it there; x64 when it won't say, or this
-    // version has no Arm build (x64 runs emulated on Arm).
+    // The machine's own CPU from its settings (a shell there may be an x64
+    // program emulated on Arm, which says AMD64 for itself); x64 when it
+    // won't say, or this version has no Arm build (x64 runs emulated on Arm).
     let to = Reach { target, via: false };
-    let cpu = run_raw(paths, to, "cmd /d /c \"echo %PROCESSOR_ARCHITECTURE%\"", b"")?;
-    let arm = cpu.status.success() && last_line(&cpu.stdout).eq_ignore_ascii_case("ARM64");
+    let cpu =
+        run_raw(paths, to, r#"reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment""#, b"")?;
+    let arm = cpu.status.success()
+        && String::from_utf8_lossy(&cpu.stdout)
+            .lines()
+            .any(|l| l.trim_start().starts_with("PROCESSOR_ARCHITECTURE") && l.trim_end().ends_with("ARM64"));
     let build = if arm && m.targets.contains_key("windows-aarch64") { "windows-aarch64" } else { "windows-x86_64" };
     let zip = crate::releases::fetch(&m, build, &scratch.0)?;
     let script = scratch.0.join("hc-install.ps1");

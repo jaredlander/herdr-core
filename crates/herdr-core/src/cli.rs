@@ -584,6 +584,8 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
                 && !force
                 && !older(&this, &format!("hc {v}"))
                 && !crate::platform::needs_bundle_update()
+                // An x64 hc on an Arm PC still looks for the Arm build.
+                && crate::platform::native_arch() == std::env::consts::ARCH
             {
                 let human = format!("{this} is already {v} or newer");
                 return Ok(Some(up_to_date(&paths, v, human)?));
