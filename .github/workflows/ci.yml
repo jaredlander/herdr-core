@@ -145,21 +145,27 @@ jobs:
           $hc = "$bin/herdr-core.exe"
           $env:HC_SESSION = "ci-diag"
           function Try-Shell($label) {
-            foreach ($shell in "cmd /c echo ready & ping -n 60 127.0.0.1", "powershell -NoProfile -Command Write-Host ready; Start-Sleep 60", "powershell -NoProfile -NonInteractive -Command Write-Host ready; Start-Sleep 60") {
-              $parts = $shell -split " "
+            foreach ($i in 1..3) {
+              $parts = "powershell -NoProfile -Command Write-Host ready; Start-Sleep 60" -split " "
               $t = (& $hc --json run --bg @parts | ConvertFrom-Json).address
               $sw = [Diagnostics.Stopwatch]::StartNew()
               while ($sw.Elapsed.TotalSeconds -lt 60 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
-              "[{0}] {1}: ready after {2:N1} s" -f $label, ($parts[0..2] -join " "), $sw.Elapsed.TotalSeconds
+              "[{0}] powershell #{1}: ready after {2:N1} s" -f $label, $i, $sw.Elapsed.TotalSeconds
             }
             & $hc server stop | Out-Null
           }
-          Try-Shell "bundled conpty, native OpenConsole"
+          # Reverse order from last time: is it the console host, or a warm-up on a fresh machine?
           Copy-Item -Recurse "$bin/conpty" "$env:RUNNER_TEMP/conpty-saved"
-          if (Test-Path "$bin/conpty/arm64") { Copy-Item -Force "$bin/conpty/x64/OpenConsole.exe" "$bin/conpty/arm64/OpenConsole.exe"; Try-Shell "bundled conpty, x64 OpenConsole" }
           Remove-Item -Recurse -Force "$bin/conpty"
           Try-Shell "Windows' own conpty"
           Copy-Item -Recurse "$env:RUNNER_TEMP/conpty-saved" "$bin/conpty"
+          if (Test-Path "$bin/conpty/arm64") {
+            Copy-Item -Force "$bin/conpty/x64/OpenConsole.exe" "$bin/conpty/arm64/OpenConsole.exe"
+            Try-Shell "bundled conpty, x64 OpenConsole"
+            Copy-Item -Force "$env:RUNNER_TEMP/conpty-saved/arm64/OpenConsole.exe" "$bin/conpty/arm64/OpenConsole.exe"
+          }
+          Try-Shell "bundled conpty, native OpenConsole"
+          (Get-FileHash "$bin/conpty/arm64/OpenConsole.exe" -ErrorAction SilentlyContinue).Hash
       # cli_docs runs the built binary's help: generated reference freshness
       # and README/docs command/flag checks, with file:line failures.
       - name: Tests (including human docs)
