@@ -136,21 +136,6 @@ jobs:
           "Windows on $native; herdr-core.exe for machine 0x{0:X4}" -f $machine
           $want = @{ AMD64 = 0x8664; ARM64 = 0xAA64 }[$native]
           if ($machine -ne $want) { throw "herdr-core.exe isn't built for this machine's own CPU" }
-      # TEMP: does PowerShell 7 start fast under hc on Arm? (decides the ssh probe test)
-      - name: pwsh in an hc terminal (experiment)
-        if: matrix.os == 'windows'
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $hc = "target/${{ matrix.target }}/debug/herdr-core.exe"
-          $env:HC_SESSION = "ci-probe"
-          foreach ($exe in "pwsh", "powershell") {
-            $t = (& $hc --json run --bg $exe -NoProfile -Command "Write-Host ready; Start-Sleep 5" | ConvertFrom-Json).address
-            $sw = [Diagnostics.Stopwatch]::StartNew()
-            while ($sw.Elapsed.TotalSeconds -lt 60 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
-            "{0} in an hc terminal: {1:N1} s" -f $exe, $sw.Elapsed.TotalSeconds
-          }
-          & $hc server stop | Out-Null
       # cli_docs runs the built binary's help: generated reference freshness
       # and README/docs command/flag checks, with file:line failures.
       - name: Tests (including human docs)
