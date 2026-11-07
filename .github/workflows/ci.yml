@@ -110,6 +110,8 @@ jobs:
           & "$env:RUNNER_TEMP\$name\zig.exe" version
           if ($LASTEXITCODE) { throw "x64 zig does not run" }
           "ZIG=$env:RUNNER_TEMP\$name\zig.exe" >> $env:GITHUB_ENV
+          # Its own cache: setup-zig's shared one was left by the crashing native Zig.
+          "ZIG_GLOBAL_CACHE_DIR=$env:RUNNER_TEMP\zig-x64-cache" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.target }}-dev
