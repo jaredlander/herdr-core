@@ -79,7 +79,7 @@ jobs:
           - { os: linux, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, threads: 4 }
           - { os: macos, runner: macos-15, target: aarch64-apple-darwin, threads: 2 }
           - { os: windows, runner: windows-2025, target: x86_64-pc-windows-msvc, threads: 2 }
-          - { os: windows, runner: windows-11-arm, target: aarch64-pc-windows-msvc, threads: 2 }
+          - { os: windows, runner: windows-11-arm, target: aarch64-pc-windows-msvc, threads: 2, slow_powershell: '1' }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -136,46 +136,28 @@ jobs:
           "Windows on $native; herdr-core.exe for machine 0x{0:X4}" -f $machine
           $want = @{ AMD64 = 0x8664; ARM64 = 0xAA64 }[$native]
           if ($machine -ne $want) { throw "herdr-core.exe isn't built for this machine's own CPU" }
-      # TEMP experiment: where do PowerShell's ~22 s in an hc terminal go?
-      - name: PowerShell in hc terminals (experiment)
+      # TEMP: does PowerShell 7 start fast under hc on Arm? (decides the ssh probe test)
+      - name: pwsh in an hc terminal (experiment)
         if: matrix.os == 'windows'
         continue-on-error: true
         shell: pwsh
         run: |
-          $bin = "target/${{ matrix.target }}/debug"
-          $hc = "$bin/herdr-core.exe"
+          $hc = "target/${{ matrix.target }}/debug/herdr-core.exe"
           $env:HC_SESSION = "ci-probe"
-          # 1. What runs during the stall.
-          $start = Get-Date
-          $t = (& $hc --json run --bg powershell -NoProfile -Command "Write-Host ready; Start-Sleep 30" | ConvertFrom-Json).address
-          Start-Sleep 8
-          "== processes started since launch (8 s in):"
-          Get-CimInstance Win32_Process | Where-Object { $_.CreationDate -ge $start } | Sort-Object CreationDate |
-            ForEach-Object { "{0,-28} pid {1,-6} parent {2,-6} cpu {3,8:N2}s  {4}" -f $_.Name, $_.ProcessId, $_.ParentProcessId, (($_.KernelModeTime + $_.UserModeTime) / 1e7), $_.CommandLine }
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          while ($sw.Elapsed.TotalSeconds -lt 60 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
-          "ready {0:N1} s after the snapshot" -f $sw.Elapsed.TotalSeconds
-          # 2. Its environment against ours.
-          $t2 = (& $hc --json run --bg cmd /c "set & echo ENV-END & ping -n 30 127.0.0.1 >nul" | ConvertFrom-Json).address
-          Start-Sleep 3
-          $theirs = @{}
-          & $hc read $t2 --json | ConvertFrom-Json | Out-Null
-          $text = (& $hc read $t2) -join "`n"
-          foreach ($line in $text -split "`n") { if ($line -match '^([^=\s]+)=(.*)$') { $theirs[$matches[1]] = $matches[2] } }
-          "== in hc only:"; $theirs.Keys | Where-Object { -not (Test-Path "env:$_") } | Sort-Object | % { "  $_=$($theirs[$_])" }
-          "== ours only:"; Get-ChildItem env: | Where-Object { -not $theirs.ContainsKey($_.Name) } | Sort-Object Name | % { "  $($_.Name)" }
-          "== differing:"; $theirs.Keys | Where-Object { (Test-Path "env:$_") -and ((Get-Item "env:$_").Value -ne $theirs[$_]) } | Sort-Object | % { "  $_ hc=[$($theirs[$_])] ours=[$((Get-Item "env:$_").Value)]" }
+          foreach ($exe in "pwsh", "powershell") {
+            $t = (& $hc --json run --bg $exe -NoProfile -Command "Write-Host ready; Start-Sleep 5" | ConvertFrom-Json).address
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt 60 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
+            "{0} in an hc terminal: {1:N1} s" -f $exe, $sw.Elapsed.TotalSeconds
+          }
           & $hc server stop | Out-Null
-          # 3. Outside hc, with hc's environment.
-          $psi = [Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -Command exit")
-          $psi.UseShellExecute = $false
-          $psi.EnvironmentVariables.Clear()
-          foreach ($k in $theirs.Keys) { $psi.EnvironmentVariables[$k] = $theirs[$k] }
-          foreach ($i in 1..2) { $sw = [Diagnostics.Stopwatch]::StartNew(); [Diagnostics.Process]::Start($psi).WaitForExit(); "outside hc with hc's env #{0}: {1:N1} s" -f $i, $sw.Elapsed.TotalSeconds }
       # cli_docs runs the built binary's help: generated reference freshness
       # and README/docs command/flag checks, with file:line failures.
       - name: Tests (including human docs)
         shell: bash
+        env:
+          HC_TEST_SLOW_POWERSHELL: ${{ matrix.slow_powershell }}
+          HC_TEST_WATCHDOG_S: ${{ matrix.slow_powershell && '600' || '120' }}
         run: |
           # Full-screen scrolling tests are disabled on macOS CI because runner timing is unreliable.
           only=()
