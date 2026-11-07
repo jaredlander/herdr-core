@@ -1222,3 +1222,23 @@ pub mod console {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Windows' own CPU, even when hc runs emulated: what the machine's
+    /// settings say, not this process.
+    #[test]
+    fn native_arch_is_the_machines_cpu() {
+        let key = r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
+        let out =
+            std::process::Command::new("reg").args(["query", key, "/v", "PROCESSOR_ARCHITECTURE"]).output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        let machine = text.split_whitespace().last().unwrap();
+        let want = match machine {
+            "ARM64" => "aarch64",
+            "AMD64" => "x86_64",
+            other => panic!("unexpected CPU {other}"),
+        };
+        assert_eq!(super::native_arch(), want);
+    }
+}
