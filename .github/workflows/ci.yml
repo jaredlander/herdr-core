@@ -136,38 +136,22 @@ jobs:
           "Windows on $native; herdr-core.exe for machine 0x{0:X4}" -f $machine
           $want = @{ AMD64 = 0x8664; ARM64 = 0xAA64 }[$native]
           if ($machine -ne $want) { throw "herdr-core.exe isn't built for this machine's own CPU" }
-      # TEMP diagnostic: PowerShell in an hc terminal under each console host.
-      - name: PowerShell startup (diagnostic)
+      # A fresh runner's first PowerShell launches in a pseudo console take
+      # 20-30 s on Arm (whatever the console host), then 0.5 s. Warm it up
+      # here so the tests' 20 s limits measure hc, not that.
+      - name: Warm up PowerShell
         if: matrix.os == 'windows'
-        continue-on-error: true
         shell: pwsh
         run: |
-          1..2 | % { "powershell -NoProfile start {0}: {1:N1} s" -f $_, (Measure-Command { powershell -NoProfile -Command exit }).TotalSeconds }
-          $bin = "target/${{ matrix.target }}/debug"
-          $hc = "$bin/herdr-core.exe"
-          $env:HC_SESSION = "ci-diag"
-          function Try-Shell($label) {
-            foreach ($i in 1..3) {
-              $parts = "powershell -NoProfile -Command Write-Host ready; Start-Sleep 60" -split " "
-              $t = (& $hc --json run --bg @parts | ConvertFrom-Json).address
-              $sw = [Diagnostics.Stopwatch]::StartNew()
-              while ($sw.Elapsed.TotalSeconds -lt 60 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
-              "[{0}] powershell #{1}: ready after {2:N1} s" -f $label, $i, $sw.Elapsed.TotalSeconds
-            }
-            & $hc server stop | Out-Null
+          $hc = "target/${{ matrix.target }}/debug/herdr-core.exe"
+          $env:HC_SESSION = "ci-warmup"
+          foreach ($i in 1..3) {
+            $t = (& $hc --json run --bg powershell -NoProfile -Command "Write-Host ready; Start-Sleep 5" | ConvertFrom-Json).address
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt 90 -and -not ((& $hc read $t) -match "ready")) { Start-Sleep -Milliseconds 200 }
+            "PowerShell #{0} in an hc terminal: {1:N1} s" -f $i, $sw.Elapsed.TotalSeconds
           }
-          # Reverse order from last time: is it the console host, or a warm-up on a fresh machine?
-          Copy-Item -Recurse "$bin/conpty" "$env:RUNNER_TEMP/conpty-saved"
-          Remove-Item -Recurse -Force "$bin/conpty"
-          Try-Shell "Windows' own conpty"
-          Copy-Item -Recurse "$env:RUNNER_TEMP/conpty-saved" "$bin/conpty"
-          if (Test-Path "$bin/conpty/arm64") {
-            Copy-Item -Force "$bin/conpty/x64/OpenConsole.exe" "$bin/conpty/arm64/OpenConsole.exe"
-            Try-Shell "bundled conpty, x64 OpenConsole"
-            Copy-Item -Force "$env:RUNNER_TEMP/conpty-saved/arm64/OpenConsole.exe" "$bin/conpty/arm64/OpenConsole.exe"
-          }
-          Try-Shell "bundled conpty, native OpenConsole"
-          (Get-FileHash "$bin/conpty/arm64/OpenConsole.exe" -ErrorAction SilentlyContinue).Hash
+          & $hc server stop | Out-Null
       # cli_docs runs the built binary's help: generated reference freshness
       # and README/docs command/flag checks, with file:line failures.
       - name: Tests (including human docs)
