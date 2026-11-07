@@ -63,10 +63,10 @@ jobs:
         if: runner.os == 'Windows' && runner.arch == 'ARM64'
         shell: pwsh
         run: |
-          zig version; "native zig exit: $LASTEXITCODE"
           $name = "zig-x86_64-windows-0.16.0"
           Invoke-WebRequest -UseBasicParsing "https://ziglang.org/download/0.16.0/$name.zip" -OutFile "$env:RUNNER_TEMP\zig.zip"
-          (Get-FileHash "$env:RUNNER_TEMP\zig.zip" -Algorithm SHA256).Hash
+          $sha = (Get-FileHash "$env:RUNNER_TEMP\zig.zip" -Algorithm SHA256).Hash
+          if ($sha -ne "68659EB5F1E4EB1437A722F1DD889C5A322C9954607F5EDCF337BC3684A75A7E") { throw "zig download: sha256 $sha" }
           Expand-Archive "$env:RUNNER_TEMP\zig.zip" $env:RUNNER_TEMP
           & "$env:RUNNER_TEMP\$name\zig.exe" version
           if ($LASTEXITCODE) { throw "x64 zig does not run" }
